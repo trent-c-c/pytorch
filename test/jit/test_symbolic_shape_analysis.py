@@ -1,5 +1,6 @@
 import torch
 from torch.testing._internal.jit_utils import JitTestCase
+import operator
 
 from torch.testing import FileCheck
 from typing import List
@@ -93,3 +94,51 @@ class TestSymbolicShapeAnalysis(JitTestCase):
         torch._C._jit_register_operator_shape_function(foo.graph.findNode("aten::adaptive_avg_pool2d"), adaptive_avg_pool2d.graph)
         torch._C._jit_pass_propagate_shapes_on_graph(foo.graph)
         FileCheck().check("Tensor(*, *)").check_same("adaptive_avg_pool2d").run(foo.graph)
+
+    def test_shared_shape_graph(self):
+        @torch.jit.script
+        def foo(x, y):
+            return x * y, x / y
+
+        mul_node = foo.graph.findNode("aten::mul")
+        div_node = foo.graph.findNode("aten::div")
+
+        mul_graph = torch._C._jit_shape_compute_graph_for_node(mul_node)
+        div_graph = torch._C._jit_shape_compute_graph_for_node(div_node)
+        self.assertIsNotNone(mul_graph)
+        self.assertIs(mul_graph, div_graph)
+
+    def test_unary_shape_functions(self):
+        def apply(fn):
+            return lambda x: fn(x)
+
+        unary_ops = [
+            torch.nn.functional.hardtanh,
+        ]
+        for fn in unary_ops:
+            t = torch.jit.trace(fn, (torch.rand([4, 4])))
+            ten_input = next(t.graph.inputs())
+            ten_input.setType(ten_input.type().with_sizes([2, 2]))
+            torch._C._jit_pass_propagate_shapes_on_graph(t.graph)
+            self.assertEqual(next(t.graph.outputs()).type().symbolic_sizes(), [2, 2])
+
+    def test_binary_shape_functions(self):
+        def apply(fn):
+            return lambda x, y: fn(x, y)
+
+        binary_ops = [
+            operator.__mul__,
+            operator.__truediv__,
+            operator.__gt__,
+            operator.__add__,
+        ]
+
+        for fn in binary_ops:
+            size_1 = [1, 4, 8]
+            size_2 = [4, 1, 8]
+            t = torch.jit.trace(fn, (torch.rand([4]), torch.rand([4])))
+            inputs = list(t.graph.inputs())
+            inputs[0].setType(inputs[0].type().with_sizes(size_1))
+            inputs[1].setType(inputs[1].type().with_sizes(size_2))
+            torch._C._jit_pass_propagate_shapes_on_graph(t.graph)
+            self.assertEqual(next(t.graph.outputs()).type().symbolic_sizes(), [4, 4, 8])
