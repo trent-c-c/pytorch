@@ -166,10 +166,7 @@ void initJITBindings(PyObject* module) {
       .def("_jit_pass_lower_all_tuples", LowerAllTuples)
       .def(
           "_new_symbolic_shape_symbol",
-          []() { return c10::ShapeSymbol::newSymbol().value(); })
-      .def(
-          "_jit_register_operator_shape_function",
-          RegisterOperatorShapeFunction)
+          []() { return ShapeSymbol::newSymbol().value(); })
       .def("_jit_pass_propagate_shapes_on_graph", PropagateShapesOnGraph)
       .def("_jit_pass_onnx_function_substitution", ONNXFunctionCallSubstitution)
       .def("_jit_pass_integer_value_refinement", RefineIntegerValues)
